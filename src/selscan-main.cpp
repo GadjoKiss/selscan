@@ -60,7 +60,7 @@ To calculate nSL:\n\
 \n\
 To calculate XP-EHH:\n\
 \n\
-./selscan --xpehh --hap <pop1 haps> --ref <pop2 haps> --map <mapfile> --out <outfile>\n";
+./selscan --xpehh --hap <pop1 haps> --ref <pop2 haps> --map1 <mapfile1> --map2 <mapfile2> --loci <singlepos> --out <outfile>\n";
 
 const string ARG_THREAD = "--threads";
 const int DEFAULT_THREAD = 1;
@@ -102,10 +102,19 @@ const string HELP_FILENAME_POP2 = "A hapfile with one row per haplotype, and one
 \tvariant. Variants should be coded 0/1. This is the 'reference'\n\
 \tpopulation for XP-EHH calculations.  Ignored otherwise.";
 
-const string ARG_FILENAME_MAP = "--map";
-const string DEFAULT_FILENAME_MAP = "__mapfile";
-const string HELP_FILENAME_MAP = "A mapfile with one row per variant site.\n\
+const string ARG_FILENAME_MAP1 = "--map1";
+const string DEFAULT_FILENAME_MAP1 = "__mapfile1";
+const string HELP_FILENAME_MAP1 = "A mapfile with one row per variant site.\n\
 \tFormatted <chr#> <locusID> <genetic pos> <physical pos>.";
+
+const string ARG_FILENAME_MAP2 = "--map2";
+const string DEFAULT_FILENAME_MAP2 = "__mapfile2";
+const string HELP_FILENAME_MAP2 = "A mapfile with one row per variant site.\n\
+\tFormatted <chr#> <locusID> <genetic pos> <physical pos>.";
+
+const string ARG_SINGLE_POS = "--loci";
+const int DEFAULT_SINGLE_POS = 0;
+const string HELP_SINGLE_POS = "Set a unique loci position (I guess we need the line number)";
 
 const string ARG_OUTFILE = "--out";
 const string DEFAULT_OUTFILE = "outfile";
@@ -218,7 +227,8 @@ struct work_order_t
     HaplotypeData *hapData2;
 
     MapData *mapData;
-
+	 MapData *mapData2;
+	 
     double (*calc)(map<string, int> &, int, bool);
 
     double *ihs;
@@ -287,7 +297,9 @@ int main(int argc, char *argv[])
     params.addFlag(ARG_FILENAME_POP2_TPED, DEFAULT_FILENAME_POP2_TPED, "", HELP_FILENAME_POP2_TPED);
     params.addFlag(ARG_FILENAME_POP1_VCF, DEFAULT_FILENAME_POP1_VCF, "", HELP_FILENAME_POP1_VCF);
     params.addFlag(ARG_FILENAME_POP2_VCF, DEFAULT_FILENAME_POP2_VCF, "", HELP_FILENAME_POP2_VCF);
-    params.addFlag(ARG_FILENAME_MAP, DEFAULT_FILENAME_MAP, "", HELP_FILENAME_MAP);
+    params.addFlag(ARG_FILENAME_MAP1, DEFAULT_FILENAME_MAP1, "", HELP_FILENAME_MAP1);
+    params.addFlag(ARG_FILENAME_MAP2, DEFAULT_FILENAME_MAP2, "", HELP_FILENAME_MAP2);
+    params.addFlag(ARG_SINGLE_POS, DEFAULT_SINGLE_POS, "", HELP_SINGLE_POS);
     params.addFlag(ARG_OUTFILE, DEFAULT_OUTFILE, "", HELP_OUTFILE);
     params.addFlag(ARG_CUTOFF, DEFAULT_CUTOFF, "", HELP_CUTOFF);
     params.addFlag(ARG_MAX_GAP, DEFAULT_MAX_GAP, "", HELP_MAX_GAP);
@@ -321,7 +333,8 @@ int main(int argc, char *argv[])
 
     string hapFilename = params.getStringFlag(ARG_FILENAME_POP1);
     string hapFilename2 = params.getStringFlag(ARG_FILENAME_POP2);
-    string mapFilename = params.getStringFlag(ARG_FILENAME_MAP);
+    string mapFilename = params.getStringFlag(ARG_FILENAME_MAP1);
+    string mapFilename2 = params.getStringFlag(ARG_FILENAME_MAP2);
     string tpedFilename = params.getStringFlag(ARG_FILENAME_POP1_TPED);
     string tpedFilename2 = params.getStringFlag(ARG_FILENAME_POP2_TPED);
     string vcfFilename = params.getStringFlag(ARG_FILENAME_POP1_VCF);
@@ -353,6 +366,7 @@ int main(int argc, char *argv[])
 
     double EHH_CUTOFF = params.getDoubleFlag(ARG_CUTOFF);
     double MAF = params.getDoubleFlag(ARG_MAF);
+	int SINGLE_POS = params.getIntFlag(ARG_SINGLE_POS);
 
     bool ALT = params.getBoolFlag(ARG_ALT);
     bool CALC_IHS = params.getBoolFlag(ARG_IHS);
@@ -445,7 +459,7 @@ int main(int argc, char *argv[])
             return 1;
         }
 
-        if ((!CALC_NSL) && mapFilename.compare(DEFAULT_FILENAME_MAP) == 0) {
+        if ((!CALC_NSL) && mapFilename.compare(DEFAULT_FILENAME_MAP1) == 0) {
             cerr << "ERROR: Must also provide a mapfile.\n";
             return 1;
         }
@@ -457,8 +471,8 @@ int main(int argc, char *argv[])
             cerr << "ERROR: You are not calculating XP-EHH for, but have given a second data file (" << hapFilename2 << ").\n";
             return 1;
         }
-        if (mapFilename.compare(DEFAULT_FILENAME_MAP) == 0) {
-            cerr << "ERROR: Must also provide a mapfile.\n";
+        if (mapFilename.compare(DEFAULT_FILENAME_MAP1) == 0 || mapFilename2.compare(DEFAULT_FILENAME_MAP2) == 0) {
+            cerr << "ERROR: Must also provide 2 mapfiles.\n";
             return 1;
         }
 
@@ -476,7 +490,7 @@ int main(int argc, char *argv[])
     }
 
     HaplotypeData *hapData, *hapData2;
-    MapData *mapData;
+    MapData *mapData, *mapData2;
 
     try
     {
@@ -506,10 +520,12 @@ int main(int argc, char *argv[])
                 }
             }
             if(!CALC_NSL) {
-                mapData = readMapData(mapFilename, hapData->nloci);
+            	 mapData = readMapData(mapFilename, hapData->nloci);
+                mapData2 = readMapData(mapFilename2, hapData2->nloci);
             }
             else{//Load physical positions
                 mapData = readMapDataVCF(vcfFilename, hapData->nloci);
+                mapData2 = readMapDataVCF(vcfFilename2, hapData2->nloci);
             }
         }
         else
@@ -525,6 +541,7 @@ int main(int argc, char *argv[])
                 }
             }
             mapData = readMapData(mapFilename, hapData->nloci);
+            mapData2 = readMapData(mapFilename2, hapData2->nloci);
         }
     }
     catch (...)
@@ -547,7 +564,20 @@ int main(int argc, char *argv[])
             return 1;
         }
     }
-
+    for (int i = 1; i < mapData2->nloci; i++) {
+        if ( mapData2->physicalPos[i] <= mapData2->physicalPos[i - 1] ) {
+            cerr << "ERROR: Map2 Variant physical position must be strictly increasing.\n";
+            cerr << "\t" << mapData2->locusName[i] << " " << mapData2->physicalPos[i] << " comes after";
+            cerr << "\t" << mapData2->locusName[i - 1] << " " << mapData2->physicalPos[i - 1] << "\n";
+            return 1;
+        }
+        if ( !CALC_NSL && mapData2->geneticPos[i] < mapData2->geneticPos[i - 1] ) {
+            cerr << "ERROR: Map2 Variant genetic position must be monotonically increasing.\n";
+            cerr << "\t" << mapData2->locusName[i] << " " << mapData2->geneticPos[i] << " comes after";
+            cerr << "\t" << mapData2->locusName[i - 1] << " " << mapData2->geneticPos[i - 1] << "\n";
+            return 1;
+        }
+    }
 
     if (EHH1K >= hapData->nhaps)
     {
@@ -758,68 +788,127 @@ int main(int argc, char *argv[])
 
     if (CALC_XP)
     {
-        ihh1 = new double[mapData->nloci];
-        ihh2 = new double[mapData->nloci];
+    	if(SINGLE_POS){
+		    numThreads = 1;
+        	cerr << "WARNING: 1 position to check, running with " << numThreads << " thread instead.\n";
+        	ihh1 = new double[1];
+		    ihh2 = new double[1];
 
-        freq1 = new double[hapData->nloci];
-        freq2 = new double[hapData2->nloci];
+		    freq1 = new double[1];
+		    freq2 = new double[1];
+			barInit(pbar, 1, 78);
+			cerr << "Starting XP-EHH calculations. on a single Hap\n";
+			
+		    work_order_t *order;
+		    pthread_t *peer = new pthread_t;
+		    // Just trick the software saying we reached the end of the Hapdata after looking at our single loci
+		    hapData->nloci = SINGLE_POS+1;
 
-        for (int i = 0; i < hapData->nloci; i++)
-        {
-            freq1[i] = calcFreq(hapData, i);
-            freq2[i] = calcFreq(hapData2, i);
-        }
+	        order = new work_order_t;
+	        order->id = SINGLE_POS;
+	        order->hapData1 = hapData;
+	        order->hapData2 = hapData2;
+	        order->mapData = mapData;
+	        order->mapData2 = mapData2;
+	        order->ihh1 = ihh1;
+	        order->ihh2 = ihh2;
+	        order->freq1 = freq1;
+	        order->freq2 = freq2;
+	        order->flog = &flog;
+	        order->bar = &pbar;
+	        order->params = &params;
+	        pthread_create(peer,
+	                       NULL,
+	                       (void *(*)(void *))calc_xpihh,
+	                       (void *)order);
 
-        barInit(pbar, mapData->nloci, 78);
+		    pthread_join(*peer, NULL);
 
-        cerr << "Starting XP-EHH calculations.\n";
-        work_order_t *order;
-        pthread_t *peer = new pthread_t[numThreads];
-        int prev_index = 0;
-        for (int i = 0; i < numThreads; i++)
-        {
-            order = new work_order_t;
-            order->id = i;
-            order->hapData1 = hapData;
-            order->hapData2 = hapData2;
-            order->mapData = mapData;
-            order->ihh1 = ihh1;
-            order->ihh2 = ihh2;
-            order->freq1 = freq1;
-            order->freq2 = freq2;
-            order->flog = &flog;
-            order->bar = &pbar;
-            order->params = &params;
-            pthread_create(&(peer[i]),
-                           NULL,
-                           (void *(*)(void *))calc_xpihh,
-                           (void *)order);
-        }
+		    delete peer;
+		    releaseHapData(hapData);
+		    releaseHapData(hapData2);
+		    cerr << "\nFinished.\n";
 
-        for (int i = 0; i < numThreads; i++)
-        {
-            pthread_join(peer[i], NULL);
-        }
+		    fout << "pos\tgpos\tp1\tihh1\tp2\tihh2\txpehh\n";
+	        if (ihh1[SINGLE_POS] != MISSING && ihh2[SINGLE_POS] != MISSING && ihh1[SINGLE_POS] != 0 && ihh2[SINGLE_POS] != 0)
+	        {
+	            fout << mapData->locusName[SINGLE_POS] << "\t"
+	                 << mapData->physicalPos[SINGLE_POS] << "\t"
+	                 << mapData->geneticPos[SINGLE_POS] << "\t"
+	                 << freq1[SINGLE_POS] << "\t"
+	                 << ihh1[SINGLE_POS] << "\t"
+	                 << freq2[SINGLE_POS] << "\t"
+	                 << ihh2[SINGLE_POS] << "\t";
+	            fout << log(ihh1[SINGLE_POS] / ihh2[SINGLE_POS]) << endl;
+	        }		
+		}
+		else{
+		    ihh1 = new double[mapData->nloci];
+		    ihh2 = new double[mapData2->nloci];
 
-        delete [] peer;
-        releaseHapData(hapData);
-        releaseHapData(hapData2);
-        cerr << "\nFinished.\n";
+		    freq1 = new double[hapData->nloci];
+		    freq2 = new double[hapData2->nloci];
+			  
+	
 
-        fout << "pos\tgpos\tp1\tihh1\tp2\tihh2\txpehh\n";
-        for (int i = 0; i < mapData->nloci; i++)
-        {
-            if (ihh1[i] != MISSING && ihh2[i] != MISSING && ihh1[i] != 0 && ihh2[i] != 0)
-            {
-                fout << mapData->locusName[i] << "\t"
-                     << mapData->physicalPos[i] << "\t"
-                     << mapData->geneticPos[i] << "\t"
-                     << freq1[i] << "\t"
-                     << ihh1[i] << "\t"
-                     << freq2[i] << "\t"
-                     << ihh2[i] << "\t";
-                fout << log(ihh1[i] / ihh2[i]) << endl;
-            }
+		    for (int i = 0; i < hapData->nloci; i++)
+		    {
+		        freq1[i] = calcFreq(hapData, i);
+		        freq2[i] = calcFreq(hapData2, i);
+		    }
+
+		    barInit(pbar, mapData->nloci, 78);
+		
+		    cerr << "Starting XP-EHH calculations.\n";
+		    work_order_t *order;
+		    pthread_t *peer = new pthread_t[numThreads];
+		    int prev_index = 0;
+		    for (int i = 0; i < numThreads; i++)
+		    {
+		        order = new work_order_t;
+		        order->id = i;
+		        order->hapData1 = hapData;
+		        order->hapData2 = hapData2;
+		        order->mapData = mapData;
+		        order->mapData2 = mapData2;
+		        order->ihh1 = ihh1;
+		        order->ihh2 = ihh2;
+		        order->freq1 = freq1;
+		        order->freq2 = freq2;
+		        order->flog = &flog;
+		        order->bar = &pbar;
+		        order->params = &params;
+		        pthread_create(&(peer[i]),
+		                       NULL,
+		                       (void *(*)(void *))calc_xpihh,
+		                       (void *)order);
+		    }
+
+		    for (int i = 0; i < numThreads; i++)
+		    {
+		        pthread_join(peer[i], NULL);
+		    }
+
+		    delete [] peer;
+		    releaseHapData(hapData);
+		    releaseHapData(hapData2);
+		    cerr << "\nFinished.\n";
+
+		    fout << "pos\tgpos\tp1\tihh1\tp2\tihh2\txpehh\n";
+		    for (int i = 0; i < mapData->nloci; i++)
+		    {
+		        if (ihh1[i] != MISSING && ihh2[i] != MISSING && ihh1[i] != 0 && ihh2[i] != 0)
+		        {
+		            fout << mapData->locusName[i] << "\t"
+		                 << mapData->physicalPos[i] << "\t"
+		                 << mapData->geneticPos[i] << "\t"
+		                 << freq1[i] << "\t"
+		                 << ihh1[i] << "\t"
+		                 << freq2[i] << "\t"
+		                 << ihh2[i] << "\t";
+		            fout << log(ihh1[i] / ihh2[i]) << endl;
+		        }
+		    }
         }
     }
     else if (CALC_IHS)
@@ -2826,7 +2915,9 @@ void calc_xpihh(void *order)
     int *physicalPos = p->mapData->physicalPos;
     double *geneticPos = p->mapData->geneticPos;
     string *locusName = p->mapData->locusName;
-
+	 int *physicalPos2 = p->mapData2->physicalPos;
+    double *geneticPos2 = p->mapData2->geneticPos;
+    string *locusName2 = p->mapData2->locusName;
     int id = p->id;
 
     ofstream *flog = p->flog;
@@ -2839,8 +2930,8 @@ void calc_xpihh(void *order)
     bool ALT = p->params->getBoolFlag(ARG_ALT);
     int numThreads = p->params->getIntFlag(ARG_THREAD);
 
-    int MAX_EXTEND = ( p->params->getIntFlag(ARG_MAX_EXTEND) <= 0 ) ? physicalPos[nloci - 1] - physicalPos[0] : p->params->getIntFlag(ARG_MAX_EXTEND);
-
+    int MAX_EXTEND = ( p->params->getIntFlag(ARG_MAX_EXTEND) <= 0 ) ? max(physicalPos[nloci - 1] - physicalPos[0], physicalPos2[nloci - 1] - physicalPos2[0]) : p->params->getIntFlag(ARG_MAX_EXTEND);
+	 
     int step = (nloci / numThreads) / (pbar->totalTicks);
     if (step == 0) step = 1;
 
@@ -2940,15 +3031,15 @@ void calc_xpihh(void *order)
             {
                 pthread_mutex_lock(&mutex_log);
                 (*flog) << "WARNING: Reached chromosome edge before EHH decayed below " << EHH_CUTOFF
-                        << ". Skipping calculation at " << locusName[locus] << "\n";
+                        << ". Skipping calculation at " << locusName[locus] << " - " << locusName2[locus] << "\n";
                 pthread_mutex_unlock(&mutex_log);
                 if (!TRUNC) skipLocus = 1;
                 break;
             }
-            else if (physicalPos[currentLocus] - physicalPos[nextLocus] > MAX_GAP)
+            else if (physicalPos[currentLocus] - physicalPos[nextLocus] > MAX_GAP || physicalPos2[currentLocus] - physicalPos2[nextLocus] > MAX_GAP)
             {
                 pthread_mutex_lock(&mutex_log);
-                (*flog) << "WARNING: Reached a gap of " << physicalPos[currentLocus] - physicalPos[nextLocus] << "bp > " << MAX_GAP << "bp. Skipping calculation at " << locusName[locus] << "\n";
+                (*flog) << "WARNING: Reached a gap of " << physicalPos[currentLocus] - physicalPos[nextLocus] << " - " << physicalPos2[currentLocus] - physicalPos2[nextLocus] << "bp > " << MAX_GAP << "bp. Skipping calculation at " << locusName[locus] << " - " << locusName2[locus] << "\n";
                 pthread_mutex_unlock(&mutex_log);
                 skipLocus = 1;
                 break;
@@ -2957,8 +3048,9 @@ void calc_xpihh(void *order)
             //Check to see if the gap between the markers is huge, if so, scale it in an ad hoc way as in
             //Voight, et al. paper
             double scale = double(SCALE_PARAMETER) / double(physicalPos[currentLocus] - physicalPos[nextLocus]);
+            double scale2 = double(SCALE_PARAMETER) / double(physicalPos2[currentLocus] - physicalPos2[nextLocus]);
             if (scale > 1) scale = 1;
-
+				if (scale2 > 1) scale2 = 1;
             currentLocus = nextLocus;
             nextLocus--;
 
@@ -3009,13 +3101,13 @@ void calc_xpihh(void *order)
             ihhPop1 += 0.5 * scale * (geneticPos[currentLocus + 1] - geneticPos[currentLocus]) * (current_pop1_ehh + previous_pop1_ehh);
             previous_pop1_ehh = current_pop1_ehh;
 
-            ihhPop2 += 0.5 * scale * (geneticPos[currentLocus + 1] - geneticPos[currentLocus]) * (current_pop2_ehh + previous_pop2_ehh);
+            ihhPop2 += 0.5 * scale2 * (geneticPos2[currentLocus + 1] - geneticPos2[currentLocus]) * (current_pop2_ehh + previous_pop2_ehh);
             previous_pop2_ehh = current_pop2_ehh;
 
             previous_pooled_ehh = current_pooled_ehh;
 
             //check if currentLocus is beyond 1Mb
-            if (physicalPos[locus] - physicalPos[currentLocus] >= MAX_EXTEND) break;
+            if (physicalPos[locus] - physicalPos[currentLocus] >= MAX_EXTEND || physicalPos2[locus] - physicalPos2[currentLocus] >= MAX_EXTEND) break;
         }
 
         delete [] haplotypeList1;
@@ -3116,15 +3208,15 @@ void calc_xpihh(void *order)
             {
                 pthread_mutex_lock(&mutex_log);
                 (*flog) << "WARNING: Reached chromosome edge before EHH decayed below " << EHH_CUTOFF
-                        << ". Skipping calculation at " << locusName[locus] << "\n";
+                        << ". Skipping calculation at " << locusName[locus] << " - " << locusName2[locus] << "\n";
                 pthread_mutex_unlock(&mutex_log);
                 if (!TRUNC) skipLocus = 1;
                 break;
             }
-            else if (physicalPos[nextLocus] - physicalPos[currentLocus] > MAX_GAP)
+            else if (physicalPos[nextLocus] - physicalPos[currentLocus] > MAX_GAP || physicalPos2[nextLocus] - physicalPos2[currentLocus] > MAX_GAP)
             {
                 pthread_mutex_lock(&mutex_log);
-                (*flog) << "WARNING: Reached a gap of " << physicalPos[nextLocus] - physicalPos[currentLocus] << "bp > " << MAX_GAP << "bp. Skipping calculation at " << locusName[locus] << "\n";
+                (*flog) << "WARNING: Reached a gap of " << physicalPos[nextLocus] - physicalPos[currentLocus] << " - " << physicalPos2[nextLocus] - physicalPos2[currentLocus] << "bp > " << MAX_GAP << "bp. Skipping calculation at " << locusName[locus] << " - " << locusName2[locus] << "\n";
                 pthread_mutex_unlock(&mutex_log);
                 skipLocus = 1;
                 break;
@@ -3132,7 +3224,8 @@ void calc_xpihh(void *order)
 
             double scale = double(SCALE_PARAMETER) / double(physicalPos[nextLocus] - physicalPos[currentLocus]);
             if (scale > 1) scale = 1;
-
+				double scale2 = double(SCALE_PARAMETER) / double(physicalPos2[currentLocus] - physicalPos2[nextLocus]);
+				if (scale2 > 1) scale2 = 1;
             currentLocus = nextLocus;
             nextLocus++;
 
@@ -3185,13 +3278,13 @@ void calc_xpihh(void *order)
             ihhPop1 += 0.5 * scale * (geneticPos[currentLocus] - geneticPos[currentLocus - 1]) * (current_pop1_ehh + previous_pop1_ehh);
             previous_pop1_ehh = current_pop1_ehh;
 
-            ihhPop2 += 0.5 * scale * (geneticPos[currentLocus] - geneticPos[currentLocus - 1]) * (current_pop2_ehh + previous_pop2_ehh);
+            ihhPop2 += 0.5 * scale2 * (geneticPos2[currentLocus] - geneticPos2[currentLocus - 1]) * (current_pop2_ehh + previous_pop2_ehh);
             previous_pop2_ehh = current_pop2_ehh;
 
             previous_pooled_ehh = current_pooled_ehh;
 
             //check if currentLocus is beyond 1Mb
-            if (physicalPos[currentLocus] - physicalPos[locus] >= MAX_EXTEND) break;
+            if (physicalPos[currentLocus] - physicalPos[locus] >= MAX_EXTEND || physicalPos2[currentLocus] - physicalPos2[locus] >= MAX_EXTEND) break;
         }
 
         delete [] haplotypeList1;
